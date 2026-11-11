@@ -1,0 +1,50 @@
+name: zeedmobile.com kontrol
+
+# Saatler UTC (Türkiye = UTC+3).
+on:
+  schedule:
+    - cron: '*/10 * * * 0,6'        # hafta sonu: 10 dk'da bir
+    - cron: '*/10 20-23 * * 1-5'    # hafta içi TR 23:00-03:00: 10 dk'da bir
+    - cron: '*/10 0-5 * * 1-5'      # hafta içi TR 03:00-09:00: 10 dk'da bir
+    - cron: '0 6-19 * * 1-5'        # hafta içi TR 09:00-23:00: saatte bir
+  workflow_dispatch:
+    inputs:
+      test:
+        description: 'Kesinti sahnele (e-posta testi)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: kontrol
+  cancel-in-progress: false
+
+jobs:
+  kontrol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Siteyi kontrol et
+        id: k
+        env:
+          TEST: ${{ inputs.test }}
+        run: bash kontrol.sh
+      - name: Issue aç / kapat
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DURUM: ${{ steps.k.outputs.durum }}
+          DETAY: ${{ steps.k.outputs.detay }}
+        run: bash bildir.sh
+      - name: Günlük canlı tutma kaydı
+        run: |
+          bugun=$(TZ=Europe/Istanbul date +%F)
+          if [ "$(head -1 son-kontrol.txt 2>/dev/null)" != "$bugun" ]; then
+            printf '%s\n%s\n' "$bugun" "${{ steps.k.outputs.durum }}" > son-kontrol.txt
+            git config user.name github-actions
+            git config user.email github-actions@users.noreply.github.com
+            git add son-kontrol.txt && git commit -qm "günlük kontrol $bugun" && git push -q || true
+          fi
